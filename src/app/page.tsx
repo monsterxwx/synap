@@ -12,7 +12,7 @@ import { PricingModal } from '@/components/PricingModal';
 import { experimental_useObject as useObject } from '@ai-sdk/react';
 import { z } from 'zod';
 import { useSearchParams, useRouter } from 'next/navigation';
-
+import { createClient } from '@/utils/supabase/client';
 import { getMindMaps, saveMindMap, getMindMapById } from '@/app/actions/mindmap';
 import MindMapNode from '@/components/MindMapNode';
 import { MindMapInput } from '@/components/MindMapInput';
@@ -31,6 +31,7 @@ interface MindMapBoardProps {
 
 function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
   const router = useRouter();
+  const supabase = createClient();
 
   const [currentMapId, setCurrentMapId] = useState<string | null>(initialMapId);
 
@@ -158,7 +159,23 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
     }
   }, [partialMindMap, hasGenerated, updateGraph]);
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
+    // 1. 登录检查
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      toast.error("请先登录", {
+        description: "生成思维导图需要登录账户",
+        action: {
+          label: "去登录",
+          onClick: () => router.push('/login')
+        }
+      });
+      // 稍微延迟跳转，让用户看到 toast
+      setTimeout(() => router.push('/login'), 1000);
+      return;
+    }
+
     let finalPrompt = inputValue;
     if (selectedFile) {
       finalPrompt = `文件：${selectedFile.name}\n内容：\n${selectedFile.content}\n要求：${inputValue}`;
@@ -240,7 +257,7 @@ function MainContent() {
   const router = useRouter();
   const mapId = searchParams.get('id');
   const [resetVersion, setResetVersion] = useState(0);
-
+  const supabase = createClient();
   const [history, setHistory] = useState<any[]>([]);
   const [isPricingOpen, setIsPricingOpen] = useState(false);
 
@@ -252,6 +269,28 @@ function MainContent() {
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        // 1. 清空历史
+        setHistory([]);
+        // 2. 强制重置 Board
+        setResetVersion(v => v + 1);
+        // 3. 回到首页
+        router.replace('/');
+      } else if (event === 'SIGNED_IN') {
+        // 登录后刷新历史
+        fetchHistory();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase, router, fetchHistory]);
 
   const handleNewChat = () => {
     router.push('/');
