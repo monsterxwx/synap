@@ -15,6 +15,7 @@ import { getLayoutedElements } from '@/lib/layout';
 import MindMapNode from '@/components/MindMapNode';
 import { AppHeader } from '@/components/AppHeader';
 import { AppSidebar } from '@/components/AppSidebar';
+import { PricingModal } from '@/components/PricingModal';
 import { experimental_useObject as useObject } from '@ai-sdk/react';
 import { z } from 'zod';
 
@@ -473,11 +474,14 @@ function MindMapBoard({
 
 export default function Home() {
   const [resetKey, setResetKey] = useState(0);
+
+  const [isPricingOpen, setIsPricingOpen] = useState(false);
+
   const handleNewChat = () => setResetKey(p => p + 1);
 
   return (
     <div className="flex h-screen w-full flex-col bg-[#edf0f2] overflow-hidden">
-      <AppHeader />
+      <AppHeader onUpgradeClick={() => setIsPricingOpen(true)} />
       <div className="flex gap-2 flex-1 overflow-hidden p-4 pt-0!">
         <div className="hidden md:block">
           <AppSidebar onNewChat={handleNewChat} />
@@ -488,6 +492,7 @@ export default function Home() {
           </ReactFlowProvider>
         </main>
       </div>
+      <PricingModal open={isPricingOpen} onOpenChange={setIsPricingOpen} />
     </div>
   );
 }

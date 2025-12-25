@@ -1,7 +1,7 @@
 import { Sparkles, User, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export function AppHeader() {
+export function AppHeader({ onUpgradeClick }: { onUpgradeClick?: () => void }) {
     return (
         <header className="h-14  flex items-center justify-between px-4 shrink-0 z-20 relative">
             {/* 左侧 Logo */}
@@ -14,7 +14,7 @@ export function AppHeader() {
 
             {/* 右侧 功能区 */}
             <div className="flex items-center gap-3">
-                <Button variant="outline" size="sm" className="hidden sm:flex gap-1 text-amber-600 border-amber-200 hover:bg-amber-50">
+                <Button onClick={onUpgradeClick} variant="outline" size="sm" className="hidden sm:flex gap-1 text-amber-600 border-amber-200 hover:bg-amber-50">
                     <Zap size={14} fill="currentColor" />
                     <span>升级 Pro</span>
                 </Button>
