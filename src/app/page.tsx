@@ -138,7 +138,9 @@ function MindMapBoard({
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) {
-      toast.error("文件过大");
+      toast.error("文件过大", {
+        description: "请上传小于 10MB 的文件",
+      })
       return;
     }
     const loadId = toast.loading("正在解析文件...");
