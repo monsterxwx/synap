@@ -155,7 +155,10 @@ function MindMapBoard({
       toast.success("解析成功", { id: loadId, description: `已提取 ${file.name}` });
       setSelectedFile({ name: file.name, content: data.text });
     } catch (error) {
-      toast.error("解析失败", { id: loadId });
+      toast.error("解析失败", {
+        id: loadId,
+        description: "请检查文件格式是否正确,支持 txt, md,docx, doc,pdf 格式",
+      });
     } finally {
       setIsParsing(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
