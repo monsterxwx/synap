@@ -25,7 +25,7 @@ export const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
 
         // 1. 估算宽度：如果字少，宽度就小；如果字多，最大也就是 NODE_MAX_WIDTH
         // (假设平均每个中文字符宽 14px，padding 左右各 16px)
-        const estimatedWidth = Math.min(NODE_MAX_WIDTH, label.length * 15 + 32);
+        const estimatedWidth = Math.max(100, Math.min(NODE_MAX_WIDTH, label.length * 15 + 32));
 
         // 2. 估算高度：看文字需要几行
         // Math.ceil(总字数 / 每行字数) = 行数

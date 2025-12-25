@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import {
   ReactFlow, Controls, Background, useNodesState, useEdgesState,
   Node, Edge, ReactFlowProvider, useReactFlow, getNodesBounds
@@ -13,16 +13,19 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { getLayoutedElements } from '@/lib/layout';
 import MindMapNode from '@/components/MindMapNode';
-
-// 引入新写的布局组件
 import { AppHeader } from '@/components/AppHeader';
 import { AppSidebar } from '@/components/AppSidebar';
-import { LoadingOverlay } from '@/components/GenerateLoading';
+import { experimental_useObject as useObject } from '@ai-sdk/react';
+import { z } from 'zod';
 
 const nodeTypes = { mindmap: MindMapNode };
-let idCounter = 1;
 
-// --- 逻辑核心组件 ---
+// Schema 定义
+const NodeSchema = z.object({
+  label: z.string().optional(),
+  children: z.array(z.lazy(() => NodeSchema)).optional(),
+});
+
 function MindMapBoard({
   initialPrompt,
   resetTrigger
@@ -32,74 +35,135 @@ function MindMapBoard({
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [hasGenerated, setHasGenerated] = useState(false); // 控制是否生成过
-  const [loading, setLoading] = useState(false);
+  const [hasGenerated, setHasGenerated] = useState(false);
 
   const [selectedFile, setSelectedFile] = useState<{ name: string; content: string } | null>(null);
-  const [isParsing, setIsParsing] = useState(false); // 文件解析中的 loading 状态
-  const fileInputRef = useRef<HTMLInputElement>(null); // 隐藏的 input 引用
-
-  // 这里的 input 是指如果用户想重新生成时的输入，或者初始输入
+  const [isParsing, setIsParsing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [inputValue, setInputValue] = useState(initialPrompt);
 
   const { getNodes, getEdges, fitView } = useReactFlow();
 
-  // 处理文件选择
+  // --- 核心逻辑: AI SDK ---
+  const {
+    object: partialMindMap,
+    submit,
+    isLoading: isAiLoading,
+  } = useObject({
+    api: '/api/generate',
+    schema: NodeSchema,
+    onFinish: ({ object }) => {
+      if (object) {
+        updateGraph(object);
+        setTimeout(() => fitView({ duration: 800 }), 200);
+      }
+    },
+    onError: (err) => {
+      console.error("生成出错:", err);
+      toast.error("生成中断，但已保留现有进度");
+    }
+  });
+
+  // --- 核心逻辑: 防抖与稳健图表更新 ---
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (partialMindMap && Object.keys(partialMindMap).length > 0) {
+      if (!hasGenerated) setHasGenerated(true);
+
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = setTimeout(() => {
+        updateGraph(partialMindMap);
+      }, 50);
+    }
+  }, [partialMindMap, hasGenerated]);
+
+
+  const updateGraph = (data: any) => {
+    if (!data || typeof data !== 'object') return;
+
+    const newNodes: Node[] = [];
+    const newEdges: Edge[] = [];
+
+    const traverse = (node: any, path: string, parentId: string | null) => {
+      if (!node) return;
+
+      const label = node.label || 'Thinking...';
+      const currentId = path;
+
+      newNodes.push({
+        id: currentId,
+        data: {
+          label: label,
+          onExpand: onExpandNode,
+          onToggle: onToggleNode
+        },
+        position: { x: 0, y: 0 },
+        type: 'mindmap',
+      });
+
+      if (parentId) {
+        newEdges.push({
+          id: `e${parentId}-${currentId}`,
+          source: parentId,
+          target: currentId,
+          type: 'default',
+          animated: true,
+          style: { stroke: '#94a3b8', strokeWidth: 2 },
+        });
+      }
+
+      if (node.children && Array.isArray(node.children)) {
+        node.children.forEach((child: any, index: number) => {
+          traverse(child, `${currentId}-${index}`, currentId);
+        });
+      }
+    };
+
+    try {
+      traverse(data, 'root', null);
+      if (newNodes.length > 0) {
+        const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(newNodes, newEdges);
+        setNodes(layoutedNodes);
+        setEdges(layoutedEdges);
+      }
+    } catch (e) {
+      console.warn("Graph update skipped due to parse error:", e);
+    }
+  };
+
+
+  // --- 文件处理 ---
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // 10MB 校验
     if (file.size > 10 * 1024 * 1024) {
-      toast.error("文件过大", {
-        description: "请上传小于 10MB 的文件",
-      })
+      toast.error("文件过大");
       return;
     }
-    const loadId = toast.loading("正在解析文件..."); // 显示加载中
+    const loadId = toast.loading("正在解析文件...");
     setIsParsing(true);
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      // 调用刚才写的 API 解析文件
-      const res = await fetch('/api/parse-file', {
-        method: 'POST',
-        body: formData,
-      });
+      const res = await fetch('/api/parse-file', { method: 'POST', body: formData });
       const data = await res.json();
-
       if (data.error) throw new Error(data.error);
-      // 成功提示
-      toast.success("解析成功", {
-        id: loadId, // 这里传入 id，会自动把上面的“加载中”替换成“成功”
-        description: `已提取 ${file.name} 的内容`,
-      });
-      // 保存文件名和解析出的文本内容
-      setSelectedFile({
-        name: file.name,
-        content: data.text
-      });
+      toast.success("解析成功", { id: loadId, description: `已提取 ${file.name}` });
+      setSelectedFile({ name: file.name, content: data.text });
     } catch (error) {
-      toast.error("解析失败", {
-        id: loadId, // 替换加载 loading
-        description: error.message || "请检查文件格式是否正确",
-      });
+      toast.error("解析失败", { id: loadId });
     } finally {
       setIsParsing(false);
-      // 清空 input，允许重复上传同名文件
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // 修改 Generate 逻辑：把“用户输入”和“文件内容”拼在一起
   const handleGenerateClick = () => {
-    // 如果既没有字，也没有文件，就不生成
     if (!inputValue.trim() && !selectedFile) return;
 
     let finalPrompt = inputValue;
-
-    // 如果有文件，拼接到 prompt 里
     if (selectedFile) {
       finalPrompt = `
         用户上传了文件：${selectedFile.name}
@@ -107,21 +171,27 @@ function MindMapBoard({
         ----------------
         ${selectedFile.content}
         ----------------
-        
         用户的额外要求：${inputValue || "请根据上述文件内容生成思维导图，总结核心观点。"}
         `;
     }
-
-    handleGenerate(finalPrompt);
+    submit({ prompt: finalPrompt, mode: 'create' });
   };
 
+
+  // --- 扩写逻辑 ---
   const onExpandNode = async (parentId: string, parentLabel: string) => {
+    if (isAiLoading) {
+      toast.warning("请等待当前生成完毕");
+      return;
+    }
+    const toastId = toast.loading("正在思考...");
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         body: JSON.stringify({ prompt: parentLabel, mode: 'expand' }),
       });
       const data = await res.json();
+      toast.dismiss(toastId);
 
       if (!data.children) return;
 
@@ -130,15 +200,12 @@ function MindMapBoard({
 
       data.children.forEach((child: any, index: number) => {
         const childId = `${parentId}-${Date.now()}-${index}`;
-
         newNodes.push({
           id: childId,
-          // 递归传递 onExpandNode，保证新节点也能继续扩写
           data: { label: child.label, onExpand: onExpandNode, onToggle: onToggleNode },
           position: { x: 0, y: 0 },
           type: 'mindmap',
         });
-
         newEdges.push({
           id: `e${parentId}-${childId}`,
           source: parentId,
@@ -149,211 +216,89 @@ function MindMapBoard({
         });
       });
 
-      // 【修复核心代码】
-      // 不要用 nodes 变量，而是用 getNodes() 获取当前最新的节点
       const currentNodes = getNodes();
       const currentEdges = getEdges();
-
       const allNodes = [...currentNodes, ...newNodes];
       const allEdges = [...currentEdges, ...newEdges];
 
-      // 重新布局
       const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(allNodes, allEdges);
-
       setNodes(layoutedNodes);
       setEdges(layoutedEdges);
 
-      // 稍微延迟一下再缩放，等待渲染完成
-      setTimeout(() => {
-        window.requestAnimationFrame(() => fitView({ duration: 800 }));
-      }, 100);
+      setTimeout(() => window.requestAnimationFrame(() => fitView({ duration: 800 })), 100);
 
     } catch (error) {
-      toast.error("扩写失败", {
-        description: "AI 服务暂时不可用，请稍后再试",
-      });
+      toast.error("扩写失败", { id: toastId });
     }
   };
 
   const onToggleNode = useCallback((nodeId: string) => {
-    // 1. 找到当前节点
     const node = getNodes().find((n) => n.id === nodeId);
     if (!node) return;
-
-    // 获取当前状态（是要折叠还是展开？）
     const isCollapsed = node.data.isCollapsed || false;
-    const shouldHide = !isCollapsed; // 如果当前没折叠，现在就要去隐藏子节点
+    const shouldHide = !isCollapsed;
 
-    // 2. 递归查找所有子孙节点的 ID
     const getChildNodeIds = (parentId: string, allEdges: Edge[]): string[] => {
-      // 找到所有从 parentId 出发的连线
       const childEdges = allEdges.filter((edge) => edge.source === parentId);
-      // 拿到连线对面的节点 ID
       const childIds = childEdges.map((edge) => edge.target);
-
-      // 递归找孙子
       let grandChildIds: string[] = [];
       childIds.forEach(id => {
         grandChildIds = [...grandChildIds, ...getChildNodeIds(id, allEdges)];
       });
-
       return [...childIds, ...grandChildIds];
     };
 
     const currentEdges = getEdges();
     const childrenIds = getChildNodeIds(nodeId, currentEdges);
 
-    // 3. 更新所有节点状态
     setNodes((nds) =>
       nds.map((n) => {
-        // 如果是当前点击的节点，更新它的 isCollapsed 图标状态
-        if (n.id === nodeId) {
-          return { ...n, data: { ...n.data, isCollapsed: shouldHide } };
-        }
-        // 如果是子孙节点，设置 hidden 属性
-        if (childrenIds.includes(n.id)) {
-          return { ...n, hidden: shouldHide };
-        }
+        if (n.id === nodeId) return { ...n, data: { ...n.data, isCollapsed: shouldHide } };
+        if (childrenIds.includes(n.id)) return { ...n, hidden: shouldHide };
         return n;
       })
     );
-
-    // 4. 更新连线状态 (连向被隐藏节点的线也要隐藏)
     setEdges((eds) =>
       eds.map((e) => {
-        if (childrenIds.includes(e.target)) {
-          return { ...e, hidden: shouldHide };
-        }
+        if (childrenIds.includes(e.target)) return { ...e, hidden: shouldHide };
         return e;
       })
     );
-
-  }, [getNodes, getEdges, setNodes, setEdges]); // 依赖项
+  }, [getNodes, getEdges, setNodes, setEdges]);
 
   const downloadImage = () => {
-    // 1. 确保获取的是最新的节点数据
-    // 注意：这里需要你上面 const { getNodes } = useReactFlow(); 已经取到了
     const nodes = getNodes();
     if (nodes.length === 0) return;
-
-    // 2. 计算边界矩形 { x, y, width, height }
     const nodesBounds = getNodesBounds(nodes);
-
-    // 3. 设置你想要的图片边距 (padding)
     const padding = 50;
-
-    // 4. 计算图片的总宽高 (内容宽高 + 边距)
     const imageWidth = nodesBounds.width + (padding * 2);
     const imageHeight = nodesBounds.height + (padding * 2);
-
-    // 5. 关键：找到 ReactFlow 内部存放节点和连线的那个 DOM 元素
-    // 类名通常是 .react-flow__viewport
     const viewportNode = document.querySelector('.react-flow__viewport') as HTMLElement;
 
     if (viewportNode) {
       toPng(viewportNode, {
         backgroundColor: '#fff',
-        // 强制设置输出图片的宽高
         width: imageWidth,
         height: imageHeight,
         pixelRatio: 2,
         style: {
           width: `${imageWidth}px`,
           height: `${imageHeight}px`,
-          // 【核心魔法】在这里！
-          // 逻辑：如果不移动，x=-500的内容会被截掉。
-          // 所以我们要 translate( -nodesBounds.x + padding, -nodesBounds.y + padding )
-          // 意思就是：把最左上角的那个点，移到 (padding, padding) 的位置
           transform: `translate(${-nodesBounds.x + padding}px, ${-nodesBounds.y + padding}px) scale(1)`,
         },
-      })
-        .then((dataUrl) => {
-          const link = document.createElement('a');
-          link.download = 'mindmap-full.png';
-          link.href = dataUrl;
-          link.click();
-        })
-        .catch((err) => {
-          toast.error("导出失败", {
-            description: "请稍后再试",
-          });
-        });
+      }).then((dataUrl) => {
+        const link = document.createElement('a');
+        link.download = 'mindmap-full.png';
+        link.href = dataUrl;
+        link.click();
+      });
     }
   };
 
-  // 核心生成逻辑 (做了微调，支持从外部传入 prompt)
-  const handleGenerate = async (promptText: string) => {
-    if (!promptText) return;
-    setLoading(true);
-    idCounter = 1;
-    setHasGenerated(true); // 只要一开始生成，就切换界面
-
-    try {
-      const res = await fetch('/api/generate', {
-        method: 'POST',
-        body: JSON.stringify({ prompt: promptText }),
-      });
-      const data = await res.json();
-
-      const transformDataToFlow = (data: any) => {
-        const nodes: Node[] = [];
-        const edges: Edge[] = [];
-
-        const traverse = (node: any, parentId: string | null) => {
-          const currentId = `${idCounter++}`;
-
-          nodes.push({
-            id: currentId,
-            data: {
-              label: node.label,
-              onExpand: onExpandNode, // 传递修复后的函数
-              onToggle: onToggleNode
-            },
-            position: { x: 0, y: 0 },
-            type: 'mindmap',
-          });
-
-          if (parentId) {
-            edges.push({
-              id: `e${parentId}-${currentId}`,
-              source: parentId,
-              target: currentId,
-              type: 'default',
-              animated: true,
-              style: { stroke: '#94a3b8', strokeWidth: 2 },
-            });
-          }
-
-          if (node.children) {
-            node.children.forEach((child: any) => traverse(child, currentId));
-          }
-        };
-
-        traverse(data, null);
-        return { nodes, edges };
-      };
-
-      const { nodes: rawNodes, edges: rawEdges } = transformDataToFlow(data);
-      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(rawNodes, rawEdges);
-
-      setNodes(layoutedNodes);
-      setEdges(layoutedEdges);
-
-      setTimeout(() => fitView({ duration: 800 }), 100);
-    } catch (err) {
-      toast.error("生成失败", {
-        description: "AI 服务暂时不可用，请稍后再试",
-      });
-      setHasGenerated(false); // 失败了就退回输入界面
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 如果还没生成，显示类似 Mapify 的中间大输入框
-  if (!hasGenerated && !loading) {
+  // --- 1. 空状态 (UI 样式还原) ---
+  if (!hasGenerated && !isAiLoading) {
     return (
-      <div className="flex  rounded-[12] flex-col items-center justify-center h-full w-full bg-white p-4 animate-in fade-in duration-500">
+      <div className="flex rounded-[12] flex-col items-center justify-center h-full w-full bg-white p-4 animate-in fade-in duration-500">
         <div className="max-w-2xl w-full flex flex-col items-center gap-8">
 
           {/* Slogan */}
@@ -372,7 +317,6 @@ function MindMapBoard({
             <div className="relative">
               <Textarea
                 placeholder={selectedFile ? "您可以补充指令，例如：'总结第三章内容'..." : "请输入你的问题或话题，或者上传文件..."}
-                // 【修改点】：增加 max-h-[300px] 和 overflow-y-auto 防止无限拉长
                 className="w-full min-h-[140px] max-h-[300px] overflow-y-auto resize-none border-none shadow-none focus-visible:ring-0 text-lg p-5 bg-transparent text-slate-700 placeholder:text-slate-400"
                 value={inputValue}
                 onChange={e => setInputValue(e.target.value)}
@@ -389,16 +333,13 @@ function MindMapBoard({
             {selectedFile && (
               <div className="px-5 pb-3 animate-in fade-in slide-in-from-bottom-2">
                 <div className="inline-flex items-center gap-3 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 text-slate-700 pl-3 pr-2 py-2 rounded-xl text-sm transition-colors group/file cursor-default">
-                  {/* 根据文件类型显示不同图标 */}
                   <div className="bg-white p-1.5 rounded-lg shadow-sm text-blue-600">
                     <FileText size={16} />
                   </div>
-
                   <div className="flex flex-col">
                     <span className="font-medium max-w-[200px] truncate text-xs sm:text-sm">{selectedFile.name}</span>
                     <span className="text-[10px] text-slate-400">已解析文本</span>
                   </div>
-
                   <button
                     onClick={() => setSelectedFile(null)}
                     className="ml-2 p-1 text-slate-400 hover:text-red-500 hover:bg-white rounded-md transition-all"
@@ -410,7 +351,7 @@ function MindMapBoard({
               </div>
             )}
 
-            {/* 3. 底部工具栏 (重构版) */}
+            {/* 3. 底部工具栏 */}
             <div className="flex justify-between items-center px-4 py-3 bg-white border-t border-slate-100">
 
               {/* 左侧：工具区 */}
@@ -423,7 +364,6 @@ function MindMapBoard({
                   onChange={handleFileSelect}
                 />
 
-                {/* 【修改点】：更现代的附件按钮，类似 Chat 工具栏 */}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -449,10 +389,9 @@ function MindMapBoard({
 
               {/* 右侧：生成按钮 */}
               <div className="flex items-center gap-3">
-
                 <Button
                   onClick={handleGenerateClick}
-                  disabled={(!inputValue.trim() && !selectedFile) || isParsing}
+                  disabled={(!inputValue.trim() && !selectedFile) || isParsing || isAiLoading}
                   className={`
                       rounded-xl px-6 py-5 font-medium transition-all shadow-md hover:shadow-lg
                       ${(!inputValue.trim() && !selectedFile)
@@ -461,7 +400,7 @@ function MindMapBoard({
                     }
                     `}
                 >
-                  {loading ? (
+                  {isAiLoading ? (
                     <Loader2 size={18} className="animate-spin mr-2" />
                   ) : (
                     <>
@@ -480,7 +419,8 @@ function MindMapBoard({
                 key={text}
                 onClick={() => {
                   setInputValue(text);
-                  handleGenerate(text);
+                  // 稍微延迟一下触发，让 input 状态先更新，体验更好
+                  setTimeout(() => submit({ prompt: text, mode: 'create' }), 0);
                 }}
                 className="text-sm text-slate-600 bg-white border rounded-lg px-4 py-3 hover:border-blue-300 hover:text-blue-600 hover:shadow-sm transition-all text-left flex items-center justify-between group"
               >
@@ -495,17 +435,21 @@ function MindMapBoard({
     );
   }
 
-  // 如果正在加载或已经生成，显示画板
+  // --- 2. 生成后/加载中状态 (画布) ---
   return (
     <div className="w-full h-full relative bg-slate-50">
-      {/* 顶部悬浮工具栏 (生成后显示的精简操作栏) */}
       <div className="absolute top-4 left-4 z-10 flex gap-2">
         <Button variant="outline" className="bg-white shadow-sm" onClick={downloadImage}>
           下载全图
         </Button>
       </div>
 
-      {loading && <LoadingOverlay />}
+      {isAiLoading && (
+        <div className="absolute top-4 right-4 z-10 bg-white/90 backdrop-blur border shadow-sm px-4 py-2 rounded-full flex items-center gap-2 text-sm text-blue-600 animate-in slide-in-from-top-2">
+          <Loader2 size={16} className="animate-spin" />
+          <span>AI 正在思考与生成...</span>
+        </div>
+      )}
 
       <ReactFlow
         nodes={nodes}
@@ -522,34 +466,20 @@ function MindMapBoard({
   );
 }
 
-// --- 页面入口 ---
 export default function Home() {
-  const [resetKey, setResetKey] = useState(0); // 用于重置组件状态
-
-  const handleNewChat = () => {
-    setResetKey(prev => prev + 1); // 强制重新渲染 MindMapBoard，回到初始状态
-  };
+  const [resetKey, setResetKey] = useState(0);
+  const handleNewChat = () => setResetKey(p => p + 1);
 
   return (
     <div className="flex h-screen w-full flex-col bg-[#edf0f2] overflow-hidden">
-      {/* 1. 顶部栏 */}
       <AppHeader />
-
       <div className="flex gap-2 flex-1 overflow-hidden p-4 pt-0!">
-        {/* 2. 左侧栏 */}
         <div className="hidden md:block">
           <AppSidebar onNewChat={handleNewChat} />
         </div>
-
-        {/* 3. 主区域 */}
         <main className="flex-1 relative">
           <ReactFlowProvider>
-            {/* key 变化时，组件会销毁重建，实现“新建”效果 */}
-            <MindMapBoard
-              key={resetKey}
-              initialPrompt=""
-              resetTrigger={handleNewChat}
-            />
+            <MindMapBoard key={resetKey} initialPrompt="" resetTrigger={handleNewChat} />
           </ReactFlowProvider>
         </main>
       </div>
