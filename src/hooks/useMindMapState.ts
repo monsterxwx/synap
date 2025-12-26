@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import {
     useNodesState, useEdgesState, useReactFlow, getNodesBounds,
     Node, Edge
@@ -33,10 +33,17 @@ function buildTreeFromFlow(nodes: Node[], edges: Edge[], rootId = 'root'): any {
 }
 
 // [MODIFIED] 增加 onAutoSave 参数
-export function useMindMapState(onAutoSave?: (treeData: any) => void) {
+export function useMindMapState(onAutoSave?: (treeData: any) => void, userTier: string = 'basic', onOpenPricing?: () => void) {
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const { getNodes, getEdges, fitView } = useReactFlow();
+
+    const tierRef = useRef(userTier);
+
+    // 每次 userTier 变化时，更新 ref
+    useEffect(() => {
+        tierRef.current = userTier;
+    }, [userTier]);
 
     // --- 核心算法：更新图数据 ---
     const updateGraph = useCallback((data: any) => {
@@ -93,6 +100,17 @@ export function useMindMapState(onAutoSave?: (treeData: any) => void) {
 
     // --- 扩写逻辑 ---
     const handleExpandNode = async (parentId: string, parentLabel: string) => {
+        // === 核心修改：权限拦截 ===
+        if (tierRef.current === 'basic') {
+            toast.error("无限扩写是 Pro 功能", {
+                description: "免费版不支持 AI 节点扩写，请升级解锁。",
+                action: {
+                    label: "去升级",
+                    onClick: () => onOpenPricing?.() // 调用弹窗
+                }
+            });
+            return; // 直接返回，不发送请求
+        }
         const toastId = toast.loading("正在思考...");
         try {
             const res = await fetch('/api/generate', {
@@ -193,9 +211,10 @@ export function useMindMapState(onAutoSave?: (treeData: any) => void) {
     }, [getNodes, getEdges, setNodes, setEdges]);
 
     // --- 导出图片 ---
-    const downloadImage = () => {
+    const downloadImage = async () => {
         const nodes = getNodes();
         if (nodes.length === 0) return;
+
         const nodesBounds = getNodesBounds(nodes);
         const padding = 50;
         const imageWidth = nodesBounds.width + (padding * 2);
@@ -203,22 +222,82 @@ export function useMindMapState(onAutoSave?: (treeData: any) => void) {
         const viewportNode = document.querySelector('.react-flow__viewport') as HTMLElement;
 
         if (viewportNode) {
-            toPng(viewportNode, {
-                backgroundColor: '#fff',
-                width: imageWidth,
-                height: imageHeight,
-                pixelRatio: 2,
-                style: {
-                    width: `${imageWidth}px`,
-                    height: `${imageHeight}px`,
-                    transform: `translate(${-nodesBounds.x + padding}px, ${-nodesBounds.y + padding}px) scale(1)`,
-                },
-            }).then((dataUrl) => {
+            let watermarkContainer: HTMLElement | null = null;
+
+            // === 核心修改：全屏倾斜水印 ===
+            if (tierRef.current === 'basic') {
+                watermarkContainer = document.createElement('div');
+                // 容器：绝对定位，覆盖整个截图区域，禁止鼠标事件
+                Object.assign(watermarkContainer.style, {
+                    position: 'absolute',
+                    top: `${-nodesBounds.y - 1000}px`, // 扩大范围覆盖，确保平移后也能覆盖到
+                    left: `${-nodesBounds.x - 1000}px`,
+                    width: `${imageWidth + 2000}px`,
+                    height: `${imageHeight + 2000}px`,
+                    zIndex: '9999',
+                    pointerEvents: 'none',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    overflow: 'hidden',
+                    opacity: '0.4' // 整体透明度
+                });
+
+                // 生成足够多的水印文字 div
+                const waterText = 'Synap Create Free';
+                const count = 50; // 根据图的大小可能需要更多，这里生成 50 个试试
+                let htmlContent = '';
+
+                // 使用 grid 布局或者简单的重复 div
+                for (let i = 0; i < count; i++) {
+                    htmlContent += `
+                        <div style="
+                            transform: rotate(-45deg); 
+                            font-size: 28px; 
+                            color: #cbd5e1; 
+                            font-weight: bold; 
+                            font-family: sans-serif;
+                            margin: 100px; 
+                            white-space: nowrap;
+                        ">
+                            ${waterText}
+                        </div>
+                    `;
+                }
+                watermarkContainer.innerHTML = htmlContent;
+
+                // 插入到 viewport
+                viewportNode.appendChild(watermarkContainer);
+            }
+
+            try {
+                const dataUrl = await toPng(viewportNode, {
+                    backgroundColor: '#fff',
+                    width: imageWidth,
+                    height: imageHeight,
+                    pixelRatio: 2,
+                    style: {
+                        width: `${imageWidth}px`,
+                        height: `${imageHeight}px`,
+                        transform: `translate(${-nodesBounds.x + padding}px, ${-nodesBounds.y + padding}px) scale(1)`,
+                    },
+                });
+
                 const link = document.createElement('a');
-                link.download = 'mindmap-full.png';
+                link.download = `Synap-${tierRef.current === 'basic' ? 'basic' : 'hd'}.png`;
                 link.href = dataUrl;
                 link.click();
-            });
+
+            } catch (err) {
+                console.error("Export failed", err);
+                toast.error("导出失败");
+            } finally {
+                // 清理
+                if (watermarkContainer && watermarkContainer.parentNode) {
+                    watermarkContainer.parentNode.removeChild(watermarkContainer);
+                }
+            }
         }
     };
 

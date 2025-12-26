@@ -28,12 +28,30 @@ const NodeSchema = z.object({
 interface MindMapBoardProps {
   initialMapId: string | null;
   onSaveSuccess: () => void;
+  onOpenPricing: () => void;
 }
 
-function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
+function MindMapBoard({ initialMapId, onSaveSuccess, onOpenPricing }: MindMapBoardProps) {
+  const [userTier, setUserTier] = useState<string>('basic');
+
   const router = useRouter();
   const supabase = createClient();
   const [currentMapId, setCurrentMapId] = useState<string | null>(initialMapId);
+
+  useEffect(() => {
+    const getUserTier = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('tier')
+          .eq('id', user.id)
+          .single();
+        if (data?.tier) setUserTier(data.tier);
+      }
+    };
+    getUserTier();
+  }, []);
 
   const handleAutoSave = useCallback(async (newContent: any) => {
     if (!currentMapId) return;
@@ -53,7 +71,7 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
     nodes, edges, onNodesChange, onEdgesChange,
     updateGraph, fitView, downloadImage,
     setNodes, setEdges
-  } = useMindMapState(handleAutoSave);
+  } = useMindMapState(handleAutoSave, userTier, onOpenPricing);
 
   const [hasGenerated, setHasGenerated] = useState(false);
   const [inputValue, setInputValue] = useState("");
@@ -182,7 +200,34 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) return toast.error("文件过大 (Max 10MB)");
+
+    // === 核心修改：根据 tier 动态限制大小 ===
+    // 1. 定义限制规则
+    const isFreeUser = userTier === 'basic';
+    const MAX_SIZE_FREE = 2 * 1024 * 1024;  // 2MB
+    const MAX_SIZE_PRO = 10 * 1024 * 1024;  // 10MB
+    const limit = isFreeUser ? MAX_SIZE_FREE : MAX_SIZE_PRO;
+
+    // 2. 检查是否超限
+    if (file.size > limit) {
+      if (isFreeUser) {
+        // 免费用户超限 -> 引导升级
+        toast.error("文件过大 (免费版限 2MB)", {
+          description: "升级 Pro 解锁 10MB 大文件支持",
+          action: {
+            label: "去升级",
+            onClick: () => onOpenPricing() // 打开付费弹窗
+          }
+        });
+      } else {
+        // 付费用户超限 -> 提示最大限制
+        toast.error("文件过大 (系统限制 10MB)");
+      }
+      // 清空 input 否则同一个文件选第二次不触发 onChange
+      e.target.value = '';
+      return;
+    }
+
     setIsParsing(true);
     const formData = new FormData();
     formData.append('file', file);
@@ -196,6 +241,8 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
       toast.error("文件解析失败");
     } finally {
       setIsParsing(false);
+      // 成功后也要清空，允许再次选择
+      e.target.value = '';
     }
   };
 
@@ -323,6 +370,7 @@ function MainContent() {
               key={mapId ? `map-${mapId}` : `new-${resetVersion}`}
               initialMapId={mapId}
               onSaveSuccess={fetchHistory}
+              onOpenPricing={() => setIsPricingOpen(true)}
             />
           </ReactFlowProvider>
         </main>
