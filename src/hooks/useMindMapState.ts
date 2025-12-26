@@ -135,6 +135,10 @@ export function useMindMapState(onAutoSave?: (treeData: any) => void) {
 
             setNodes(layoutedNodes);
             setEdges(layoutedEdges);
+
+            // 扩写成功后，通知 UserNav 组件重新拉取最新的积分
+            window.dispatchEvent(new Event('user:refresh-credits'));
+
             setTimeout(() => window.requestAnimationFrame(() => fitView({ duration: 800 })), 100);
 
             // [NEW] 触发自动保存

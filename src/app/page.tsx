@@ -19,6 +19,7 @@ import { MindMapInput } from '@/components/MindMapInput';
 import { useMindMapState } from '@/hooks/useMindMapState';
 
 const nodeTypes = { mindmap: MindMapNode };
+
 const NodeSchema = z.object({
   label: z.string().optional(),
   children: z.array(z.lazy(() => NodeSchema)).optional(),
@@ -32,11 +33,8 @@ interface MindMapBoardProps {
 function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
   const router = useRouter();
   const supabase = createClient();
-
   const [currentMapId, setCurrentMapId] = useState<string | null>(initialMapId);
 
-  // [NEW] 定义自动保存回调
-  // 这个回调会被 useMindMapState 在扩写完成后调用
   const handleAutoSave = useCallback(async (newContent: any) => {
     if (!currentMapId) return;
     try {
@@ -45,15 +43,12 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
         content: newContent,
         title: newContent.label || '思维导图'
       });
-      // 可以选择不提示，或者只提示一个小小的 "已保存"
-      // toast.success("内容已更新"); 
     } catch (e) {
       console.error("Auto save failed:", e);
       toast.error("自动保存失败");
     }
   }, [currentMapId]);
 
-  // [MODIFIED] 将回调传入 Hook
   const {
     nodes, edges, onNodesChange, onEdgesChange,
     updateGraph, fitView, downloadImage,
@@ -64,13 +59,11 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
   const [inputValue, setInputValue] = useState("");
   const [selectedFile, setSelectedFile] = useState<{ name: string; content: string } | null>(null);
   const [isParsing, setIsParsing] = useState(false);
-
   const [isMapLoading, setIsMapLoading] = useState(!!initialMapId);
 
   // --- 1. 加载/重置逻辑 ---
   useEffect(() => {
     let ignore = false;
-    // A. 新建模式
     if (!initialMapId) {
       if (!ignore) {
         setCurrentMapId(null);
@@ -83,8 +76,6 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
       }
       return;
     }
-
-    // B. 历史模式
     const loadMap = async () => {
       try {
         const data = await getMindMapById(initialMapId);
@@ -129,7 +120,6 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
             content: object,
             title
           });
-
           if (savedMap) {
             if (!currentMapId || currentMapId !== savedMap.id) {
               setCurrentMapId(savedMap.id);
@@ -139,13 +129,19 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
             }
             toast.success(currentMapId ? "更新已保存" : "已自动保存");
             onSaveSuccess();
+
+            // [双重保险] 生成完成后再次刷新积分，确保准确
+            window.dispatchEvent(new Event('user:refresh-credits'));
           }
         } catch (err) {
           console.error("保存失败", err);
         }
       }
     },
-    onError: () => toast.error("生成中断")
+    onError: (err) => {
+      // [新增] 如果是因为积分不足报错，可以在这里处理 (前提是 API 返回了错误信息)
+      toast.error("生成中断，请检查积分或网络");
+    }
   });
 
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -160,21 +156,21 @@ function MindMapBoard({ initialMapId, onSaveSuccess }: MindMapBoardProps) {
   }, [partialMindMap, hasGenerated, updateGraph]);
 
   const handleGenerate = async () => {
-    // 1. 登录检查
     const { data: { user } } = await supabase.auth.getUser();
-
     if (!user) {
       toast.error("请先登录", {
         description: "生成思维导图需要登录账户",
-        action: {
-          label: "去登录",
-          onClick: () => router.push('/login')
-        }
+        action: { label: "去登录", onClick: () => router.push('/login') }
       });
-      // 稍微延迟跳转，让用户看到 toast
       setTimeout(() => router.push('/login'), 1000);
       return;
     }
+
+    // === 核心修改：触发积分刷新 ===
+    // 我们延迟 1 秒触发，等待 API 扣费处理完成
+    setTimeout(() => {
+      window.dispatchEvent(new Event('user:refresh-credits'));
+    }, 1000);
 
     let finalPrompt = inputValue;
     if (selectedFile) {
@@ -256,6 +252,8 @@ function MainContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const mapId = searchParams.get('id');
+  const isSuccess = searchParams.get('success');
+  const isCanceled = searchParams.get('canceled');
   const [resetVersion, setResetVersion] = useState(0);
   const supabase = createClient();
   const [history, setHistory] = useState<any[]>([]);
@@ -271,22 +269,37 @@ function MainContent() {
   }, [fetchHistory]);
 
   useEffect(() => {
+    if (isSuccess) {
+      toast.success("支付成功！", { description: "正在同步权益，请稍候..." });
+      // [关键] 支付成功回来后，也手动触发一下积分刷新，虽然 Realtime 应该会处理
+      window.dispatchEvent(new Event('user:refresh-credits'));
+
+      const timer = setTimeout(() => {
+        router.refresh();
+        router.replace('/');
+        toast.success("升级成功！", { description: "您现在已是会员用户" });
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+    if (isCanceled) {
+      toast.error("支付已取消");
+      router.replace('/');
+    }
+  }, [isSuccess, isCanceled, router]);
+
+  useEffect(() => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT') {
-        // 1. 清空历史
         setHistory([]);
-        // 2. 强制重置 Board
         setResetVersion(v => v + 1);
-        // 3. 回到首页
         router.replace('/');
       } else if (event === 'SIGNED_IN') {
-        // 登录后刷新历史
         fetchHistory();
+        router.refresh();
       }
     });
-
     return () => {
       subscription.unsubscribe();
     };
@@ -298,7 +311,7 @@ function MainContent() {
   };
 
   return (
-    <div className="flex h-screen w-full flex-col bg-[#edf0f2] overflow-hidden">
+    <div className="flex h-screen w-full flex-col bg-[#f6f7f9] overflow-hidden">
       <AppHeader onUpgradeClick={() => setIsPricingOpen(true)} />
       <div className="flex gap-2 flex-1 overflow-hidden p-4 pt-0!">
         <div className="hidden md:block">

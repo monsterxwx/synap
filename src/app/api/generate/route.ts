@@ -1,69 +1,144 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { streamObject, generateObject } from 'ai';
 import { z } from 'zod';
+import { createClient } from '@/utils/supabase/server';
+import { NextResponse } from 'next/server';
 
-// --- 1. 初始化 Provider (带底层拦截器) ---
-// 保持你刚才那个无敌的拦截器配置不变
+// --- 配置区域 ---
+const PRICING = {
+  BASE_COST_CREATE: 30,   // [生成模式] 起步价 (较贵)
+  BASE_COST_EXPAND: 3,    // [扩写模式] 起步价 (便宜)
+  CHARS_PER_CREDIT: 500,  // 流量费 (每 500 字 1 分)
+  MAX_COST_CAP: 200,      // 封顶
+};
+
+// --- 初始化 DeepSeek ---
 const deepseek = createOpenAI({
   baseURL: 'https://api.deepseek.com/v1',
   apiKey: process.env.DEEPSEEK_API_KEY,
   compatibility: 'compatible',
-
   fetch: async (url, options) => {
     if (options && options.body) {
       const body = JSON.parse(options.body as string);
-
       if (body.response_format?.type === 'json_schema') {
         body.response_format = { type: 'json_object' };
       }
-
       if (body.messages) {
         for (const msg of body.messages) {
           if (msg.role === 'system' && !msg.content.toLowerCase().includes('json')) {
-            console.log('拦截器自动补充 JSON 关键词...');
             msg.content += ' (Please respond in JSON format)';
           }
         }
       }
-
       options.body = JSON.stringify(body);
     }
     return fetch(url, options);
   },
 });
 
-// --- 2. Schema 定义 ---
 const NodeSchema: z.ZodType<any> = z.lazy(() =>
   z.object({
-    label: z.string().describe('节点的文本标签，简练核心'),
-    children: z.array(NodeSchema).optional().describe('子节点数组'),
+    label: z.string(),
+    children: z.array(NodeSchema).optional(),
   })
 );
 
-// 扩写用的 Schema
 const ExpandSchema = z.object({
-  children: z.array(
-    z.object({
-      label: z.string(),
-      children: z.array(z.any()).optional(),
-    })
-  ),
+  children: z.array(z.object({ label: z.string(), children: z.array(z.any()).optional() })),
 });
 
-export const maxDuration = 60;
+// --- 辅助函数：计算预估成本 ---
+// 增加 mode 参数来区分计费
+function calculateCost(inputText: string, mode: string = 'create'): number {
+  const inputLength = inputText.length;
+
+  // 根据模式选择起步价
+  const baseCost = mode === 'expand' ? PRICING.BASE_COST_EXPAND : PRICING.BASE_COST_CREATE;
+
+  const variableCost = Math.ceil(inputLength / PRICING.CHARS_PER_CREDIT);
+  let totalCost = baseCost + variableCost;
+
+  if (totalCost > PRICING.MAX_COST_CAP) {
+    totalCost = PRICING.MAX_COST_CAP;
+  }
+
+  return totalCost;
+}
 
 export async function POST(req: Request) {
   try {
-    const { prompt, mode } = await req.json();
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    // --- 分支 A: 扩写模式 ---
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // 1. 获取请求体
+    const jsonBody = await req.json();
+    const { prompt, mode } = jsonBody;
+
+    // 2. 核心：计算成本 (传入 mode)
+    const estimatedCost = calculateCost(
+      typeof prompt === 'string' ? prompt : JSON.stringify(prompt),
+      mode // <--- 传入模式
+    );
+
+    // 3. 获取用户状态
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('credits, tier, billing_cycle, last_reset_date')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
+    // 年付用户自动月度刷新逻辑
+    if (profile.tier === 'pro' && profile.billing_cycle === 'year' && profile.last_reset_date) {
+      const lastReset = new Date(profile.last_reset_date);
+      const now = new Date();
+      const diffDays = Math.ceil(Math.abs(now.getTime() - lastReset.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays >= 30) {
+        await supabase.from('profiles').update({ credits: 3000, last_reset_date: now.toISOString() }).eq('id', user.id);
+        profile.credits = 3000;
+      }
+    }
+
+    const isUnlimited = profile.tier === 'unlimited';
+
+    // 4. 积分检查
+    if (!isUnlimited) {
+      if (profile.credits < estimatedCost) {
+        return NextResponse.json({
+          error: `积分不足。本次操作需要 ${estimatedCost} 积分，当前余额 ${profile.credits}。`,
+          required: estimatedCost,
+          current: profile.credits,
+          code: 'INSUFFICIENT_CREDITS'
+        }, { status: 403 });
+      }
+
+      // 5. 扣费
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ credits: profile.credits - estimatedCost })
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error('扣费失败', updateError);
+        return NextResponse.json({ error: 'Transaction failed' }, { status: 500 });
+      }
+    }
+
+    // --- AI 生成逻辑 ---
+
     if (mode === 'expand') {
       const result = await generateObject({
         model: deepseek.chat('deepseek-chat'),
         schema: ExpandSchema,
         // @ts-ignore
         mode: 'json',
-        // 【核心修复】在这里显式定义 JSON 结构，让 DeepSeek 别乱起名
         system: `你是一个思维导图扩写助手。
         请针对用户给出的节点，发散出 3-5 个具体的子节点。
         
@@ -78,11 +153,12 @@ export async function POST(req: Request) {
         必须使用 "children" 和 "label"。`,
         prompt: prompt,
       });
-      return result.toJsonResponse();
-    }
 
-    // --- 分支 B: 全量生成模式 (流式) ---
-    else {
+      // 返回 JSON 响应，并带上消耗信息
+      const response = result.toJsonResponse();
+      response.headers.set('X-Cost-Charged', estimatedCost.toString());
+      return response;
+    } else {
       const result = await streamObject({
         model: deepseek.chat('deepseek-chat'),
         schema: NodeSchema,
@@ -101,14 +177,13 @@ export async function POST(req: Request) {
         3. 内容要在 label 中，不要太长。`,
         prompt: prompt,
       });
-
-      return result.toTextStreamResponse();
+      const response = result.toTextStreamResponse();
+      response.headers.set('X-Cost-Charged', estimatedCost.toString());
+      return response;
     }
 
   } catch (error) {
-    console.error("API Error details:", error);
-    return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }), { status: 500 });
+    console.error("API Error:", error);
+    return new Response(JSON.stringify({ error: 'Internal Error' }), { status: 500 });
   }
 }

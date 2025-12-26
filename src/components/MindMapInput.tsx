@@ -1,5 +1,5 @@
-import { useRef } from 'react';
-import { Loader2, ArrowRight, Lightbulb, Paperclip, FileText, X } from 'lucide-react';
+import { useRef, useMemo } from 'react'; // 引入 useMemo 优化计算
+import { Loader2, ArrowRight, Lightbulb, Paperclip, FileText, X, Sparkles } from 'lucide-react'; // 引入 Sparkles 图标
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -25,6 +25,19 @@ export function MindMapInput({
     onGenerate
 }: MindMapInputProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // --- 新增：实时计算预计消耗积分 ---
+    // 公式：基础 30 + (总字数 / 500) 向上取整
+    const estimatedCost = useMemo(() => {
+        const textLength = inputValue.length;
+        const fileLength = selectedFile?.content?.length || 0;
+        const totalLength = textLength + fileLength;
+
+        // 如果没有内容，显示基础分 30
+        const variableCost = Math.ceil(totalLength / 500);
+        return 30 + variableCost;
+    }, [inputValue, selectedFile]);
+    // ------------------------------------
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -88,13 +101,31 @@ export function MindMapInput({
                             </Button>
                         </div>
 
-                        <Button
-                            onClick={onGenerate}
-                            disabled={(!inputValue.trim() && !selectedFile) || isParsing || isAiLoading}
-                            className={`rounded-xl px-6 py-5 font-medium transition-all shadow-md hover:shadow-lg ${(!inputValue.trim() && !selectedFile) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-200'}`}
-                        >
-                            {isAiLoading ? <Loader2 size={18} className="animate-spin mr-2" /> : <>开始生成 <ArrowRight size={18} className="ml-2 opacity-80" /></>}
-                        </Button>
+                        {/* 修改这里：将按钮和积分提示包裹在一个 Flex 容器中 */}
+                        <div className="flex items-center gap-4">
+                            {/* --- 新增：积分消耗提示 --- */}
+                            {(inputValue.trim() || selectedFile) && !isAiLoading && (
+                                <div className="hidden sm:flex flex-col items-end animate-in fade-in slide-in-from-right-2">
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                                        预计消耗
+                                    </div>
+                                    <div className="flex items-center gap-1 text-slate-700">
+                                        <Sparkles size={12} className="text-orange-500 fill-orange-500" />
+                                        <span className="text-xs font-bold font-mono">{estimatedCost}</span>
+                                        <span className="text-[10px] text-slate-500">积分</span>
+                                    </div>
+                                </div>
+                            )}
+                            {/* --------------------------- */}
+
+                            <Button
+                                onClick={onGenerate}
+                                disabled={(!inputValue.trim() && !selectedFile) || isParsing || isAiLoading}
+                                className={`rounded-xl px-6 py-5 font-medium transition-all shadow-md hover:shadow-lg ${(!inputValue.trim() && !selectedFile) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-200'}`}
+                            >
+                                {isAiLoading ? <Loader2 size={18} className="animate-spin mr-2" /> : <>开始生成 <ArrowRight size={18} className="ml-2 opacity-80" /></>}
+                            </Button>
+                        </div>
                     </div>
                 </div>
 
