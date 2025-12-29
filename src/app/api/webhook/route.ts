@@ -1,106 +1,121 @@
-import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { VARIANT_CONFIG } from '@/lib/billing';
+import crypto from 'crypto';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2024-12-18.acacia' as any,
-});
-
+// 初始化 Supabase
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// 积分配置
 const CREDITS_MAP: Record<string, number> = {
     'pro': 3000,
     'unlimited': 999999999,
 };
 
+
 export async function POST(req: Request) {
-    const body = await req.text();
-    const signature = (await headers()).get('Stripe-Signature') as string;
-
-    let event: Stripe.Event;
     try {
-        event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET!);
+        const rawBody = await req.text();
+        const signature = req.headers.get('X-Signature') || '';
+        const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET!;
+
+        // 1. 验证签名
+        const hmac = crypto.createHmac('sha256', secret);
+        const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8');
+        const signatureBuffer = Buffer.from(signature, 'utf8');
+
+        if (!crypto.timingSafeEqual(digest, signatureBuffer)) {
+            return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+        }
+
+        const payload = JSON.parse(rawBody);
+        const eventName = payload.meta.event_name;
+
+        // 2. 事件分发
+        if (eventName === 'subscription_created') {
+            await handleSubscriptionCreated(payload);
+        } else if (eventName === 'subscription_updated') {
+            await handleSubscriptionUpdated(payload);
+        }
+
+        return NextResponse.json({ received: true });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    // 1. 首次支付
-    if (event.type === 'checkout.session.completed') {
-        const session = event.data.object as Stripe.Checkout.Session;
-        await handleCheckout(session);
-    }
-
-    // 2. 自动续费 (月付/年付到期后的自动扣款)
-    if (event.type === 'invoice.payment_succeeded') {
-        const invoice = event.data.object as Stripe.Invoice;
-        await handleInvoice(invoice);
-    }
-
-    return NextResponse.json({ received: true });
-}
-
-// --- 辅助函数：同时获取 结束日期 和 周期(month/year) ---
-async function fetchSubscriptionDetails(subId: string) {
-    try {
-        const sub = await stripe.subscriptions.retrieve(subId);
-        // 获取周期：'month' 或 'year'
-        // Stripe 结构通常在 items.data[0].price.recurring.interval
-        const interval = sub.items.data[0].price.recurring?.interval || 'month';
-        const endDate = new Date(sub.current_period_end * 1000).toISOString();
-        return { interval, endDate };
-    } catch (e) {
-        console.warn('Fetch sub failed', e);
-        // 兜底
-        const d = new Date(); d.setDate(d.getDate() + 30);
-        return { interval: 'month', endDate: d.toISOString() };
+        console.error('Webhook error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
 
-async function handleCheckout(session: Stripe.Checkout.Session) {
-    const userId = session.metadata?.userId;
-    const tier = session.metadata?.tier;
-    const subId = session.subscription as string;
+// --- 处理新订阅 ---
+async function handleSubscriptionCreated(payload: any) {
+    const attributes = payload.data.attributes;
+    const customData = payload.meta.custom_data;
 
-    if (!userId || !tier) return;
+    // 从 checkout 传递过来的数据
+    const userId = customData?.user_id;
+    const tier = customData?.tier;
 
-    const { interval, endDate } = await fetchSubscriptionDetails(subId);
+    if (!userId || !tier) {
+        console.error('Missing user_id or tier in custom_data');
+        return;
+    }
+
+    const subId = payload.data.id;
+    const customerId = attributes.customer_id;
+    const endDate = attributes.renews_at;
+    const variantId = String(attributes.variant_id); // 转为字符串查表
+
+    // 核心修改：根据 ID 自动判断是月付还是年付
+    const config = VARIANT_CONFIG[variantId];
+    const billingCycle = config ? config.interval : 'month'; // 默认 fallback 到 month
+
     const newCredits = CREDITS_MAP[tier] || 0;
 
-    await supabase.from('profiles').update({
-        tier,
+    // 更新数据库
+    const { error } = await supabase.from('profiles').update({
+        tier: tier,
         credits: newCredits,
-        stripe_subscription_id: subId,
-        stripe_customer_id: session.customer as string,
+        lemon_subscription_id: subId,
+        lemon_customer_id: customerId,
         subscription_end_date: endDate,
-        billing_cycle: interval,   // <--- 存入周期
-        last_reset_date: new Date().toISOString() // <--- 更新重置时间
+        billing_cycle: billingCycle, // <--- 写入正确的周期
+        last_reset_date: new Date().toISOString()
     }).eq('id', userId);
+
+    if (error) console.error('Database update failed:', error);
 }
 
-async function handleInvoice(invoice: Stripe.Invoice) {
-    const subId = invoice.subscription as string;
-    if (!subId) return;
+// --- 处理续费/更新 ---
+async function handleSubscriptionUpdated(payload: any) {
+    const attributes = payload.data.attributes;
+    const subId = payload.data.id;
 
-    const { data: user } = await supabase
+    const { data: user, error } = await supabase
         .from('profiles')
-        .select('id, tier')
-        .eq('stripe_subscription_id', subId)
+        .select('id, tier, subscription_end_date')
+        .eq('lemon_subscription_id', subId)
         .single();
 
-    if (!user) return;
+    if (error || !user) return;
 
-    const { interval, endDate } = await fetchSubscriptionDetails(subId);
-    const newCredits = CREDITS_MAP[user.tier] || 0;
+    const newEndDate = attributes.renews_at;
+    const oldEndDate = user.subscription_end_date;
 
-    // 续费意味着必须重置积分
-    await supabase.from('profiles').update({
-        credits: newCredits,
-        subscription_end_date: endDate,
-        billing_cycle: interval,
-        last_reset_date: new Date().toISOString()
-    }).eq('id', user.id);
+    // 只有当到期时间变化（说明续费成功）时，才重置积分
+    if (newEndDate !== oldEndDate) {
+        const newCredits = CREDITS_MAP[user.tier] || 0;
+
+        // 注意：续费时通常周期不变，所以不用更新 billing_cycle，
+        // 但如果支持“月转年”，可以通过 attributes.variant_id 再次检查 VARIANT_CONFIG 并更新
+
+        await supabase.from('profiles').update({
+            credits: newCredits,
+            subscription_end_date: newEndDate,
+            last_reset_date: new Date().toISOString(),
+        }).eq('id', user.id);
+
+        console.log(`Credits reset for user ${user.id} (Renal)`);
+    }
 }

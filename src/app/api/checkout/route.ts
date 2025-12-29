@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
-import Stripe from 'stripe';
+import { lemonSqueezySetup, createCheckout } from '@lemonsqueezy/lemonsqueezy.js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2024-12-18.acacia' as any, // 使用最新版本即可
+// 初始化 Lemon Squeezy
+lemonSqueezySetup({
+    apiKey: process.env.LEMONSQUEEZY_API_KEY!,
 });
 
 export async function POST(req: Request) {
@@ -16,30 +17,51 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        // 注意：这里的 priceId 现在应该传 Lemon Squeezy 的 Variant ID
         const { priceId, tierName } = await req.json();
 
-        // 2. 创建 Stripe Checkout Session
-        const session = await stripe.checkout.sessions.create({
-            customer_email: user.email, // 自动填入用户邮箱
-            line_items: [
-                {
-                    price: priceId, // 前端传来的价格 ID
-                    quantity: 1,
-                },
-            ],
-            mode: 'subscription', // 订阅模式
-            success_url: `${process.env.NEXT_PUBLIC_APP_URL}/?success=true`, // 支付成功回调
-            cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/?canceled=true`, // 取消回调
-            // 关键：把用户 ID 和购买等级存到 metadata，方便 Webhook 处理
-            metadata: {
-                userId: user.id,
-                tier: tierName, // 'pro' 或 'unlimited'
-            },
-        });
+        // 1. 确保 Store ID 存在且为数字 (虽然 SDK 允许字符串，但转为数字最稳)
+        const storeId = process.env.LEMONSQUEEZY_STORE_ID;
 
-        return NextResponse.json({ url: session.url });
+        // 2. 关键修改：强制转为整数
+        const variantId = parseInt(priceId.toString(), 10);
+
+        if (!storeId) {
+            return NextResponse.json({ error: 'Store ID not found' }, { status: 500 });
+        }
+
+        // 2. 创建 Lemon Squeezy Checkout
+        const checkout = await createCheckout(
+            storeId!,
+            variantId, // 对应 LS 的 Variant ID
+            {
+                checkoutData: {
+                    email: user.email, // 预填用户邮箱
+                    custom: {
+                        user_id: user.id, // 透传用户ID
+                        tier: tierName,   // 透传等级 ('pro' 或 'unlimited')
+                    },
+                },
+                productOptions: {
+                    redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL}/?success=true`, // 支付成功跳转
+                    receiptButtonText: 'Go to Dashboard',
+                    // cancelUrl 不在 productOptions 里直接设置，通常在后台设置或依赖浏览器回退，
+                    // 但可以通过 API 覆写 checkout 行为，此处简化处理。
+                },
+            }
+        );
+        // 获取支付链接
+        const checkoutUrl = checkout.data?.data.attributes.url;
+
+        if (!checkoutUrl) {
+            console.error('Lemon Squeezy Checkout Error:', checkout.error);
+            return NextResponse.json({ error: 'Failed to create checkout' }, { status: 500 });
+        }
+
+        return NextResponse.json({ url: checkoutUrl });
+
     } catch (error) {
-        console.error('Stripe error:', error);
+        console.error('Checkout error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
 }

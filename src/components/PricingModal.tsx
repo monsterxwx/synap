@@ -8,15 +8,15 @@ import { cn } from '@/lib/utils';
 import { toast } from "sonner";
 import { createClient } from '@/utils/supabase/client';
 
-// --- 配置你的 Stripe Price IDs ---
-const STRIPE_PRICES = {
+// --- 配置你的 Lemon Squeezy Variant IDs (从环境变量读取) ---
+const LEMONSQUEEZY_VARIANTS = {
     pro: {
-        monthly: 'price_1SiDJu3rzTPNwoUsBNXptaBm',
-        yearly: 'price_1SiDOM3rzTPNwoUsXXaDcjep',
+        monthly: process.env.NEXT_PUBLIC_VARIANT_PRO_MONTHLY,
+        yearly: process.env.NEXT_PUBLIC_VARIANT_PRO_YEARLY,
     },
     unlimited: {
-        monthly: 'price_1SiDQc3rzTPNwoUs965zCGYK',
-        yearly: 'price_1SiDRd3rzTPNwoUs4N0c26b6',
+        monthly: process.env.NEXT_PUBLIC_VARIANT_UNLIMITED_MONTHLY,
+        yearly: process.env.NEXT_PUBLIC_VARIANT_UNLIMITED_YEARLY,
     }
 };
 
@@ -56,7 +56,7 @@ const tiers = [
         monthlyPrice: '9.90',
         buttonText: '立即升级',
         buttonVariant: 'primary',
-        popular: true, // 注意：这个静态属性将不再控制高亮，由下方逻辑动态控制
+        popular: true,
         badge: '最推荐',
         features: [
             '每月 3000 点 AI 积分',
@@ -129,26 +129,41 @@ export function PricingModal({ open, onOpenChange }: PricingModalProps) {
 
         const currentLevel = TIER_LEVELS[currentTier] || 0;
         const targetLevel = TIER_LEVELS[tierId] || 0;
-        if (targetLevel <= currentLevel) return;
+
+        if (targetLevel <= currentLevel) return
 
         setLoadingTier(tierId);
+
         try {
-            // @ts-ignore
-            const priceId = STRIPE_PRICES[tierId]?.[isYearly ? 'yearly' : 'monthly'];
-            if (!priceId) {
-                toast.error("配置错误：未找到价格 ID");
+            // @ts-ignore - 我们知道 tierId 只有 pro 和 unlimited 两种情况会进这里
+            const variantId = LEMONSQUEEZY_VARIANTS[tierId]?.[isYearly ? 'yearly' : 'monthly'];
+
+            if (!variantId) {
+                console.error(`Missing Variant ID for ${tierId} (${isYearly ? 'Yearly' : 'Monthly'})`);
+                toast.error("配置错误：未找到对应的支付 ID，请联系客服");
                 return;
             }
 
             const res = await fetch('/api/checkout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ priceId, tierName: tierId }),
+                body: JSON.stringify({
+                    priceId: variantId, // 这里传的是 Lemon Squeezy 的 Variant ID
+                    tierName: tierId
+                }),
             });
 
             const data = await res.json();
+
             if (data.error) throw new Error(data.error);
-            window.location.href = data.url;
+
+            // 跳转到 Lemon Squeezy 支付页
+            if (data.url) {
+                window.location.href = data.url;
+            } else {
+                throw new Error("Invalid response from server");
+            }
+
         } catch (error) {
             console.error(error);
             toast.error("发起支付失败，请稍后重试");
@@ -160,7 +175,6 @@ export function PricingModal({ open, onOpenChange }: PricingModalProps) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange} >
             <DialogContent className="sm:max-w-[1100px] max-w-[1100px] w-full gap-0! p-0 overflow-hidden bg-[#ebf1ff] rounded-3xl border-0 shadow-2xl flex flex-col max-h-[90vh]">
-
                 <button
                     onClick={() => onOpenChange(false)}
                     className="absolute right-3 top-3 z-50 p-2 rounded-full bg-slate-100/50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all backdrop-blur-sm"
@@ -205,10 +219,6 @@ export function PricingModal({ open, onOpenChange }: PricingModalProps) {
                             const isCurrentPlan = currentTier === tier.id;
                             const isLowerPlan = cardLevel < currentLevel;
 
-                            // === 核心逻辑修改：决定谁有“蓝框” (shouldHighlight) ===
-                            // 规则：
-                            // 1. 如果用户是 Basic (免费)，高亮 Pro (中间那个)。
-                            // 2. 如果用户是付费用 (Pro/Unlimited)，高亮他自己当前的那个。
                             const isBasicUser = currentTier === 'basic';
                             const shouldHighlight = isBasicUser ? (tier.id === 'pro') : isCurrentPlan;
 
@@ -217,7 +227,6 @@ export function PricingModal({ open, onOpenChange }: PricingModalProps) {
                                     key={tier.name}
                                     className={cn(
                                         "relative rounded-2xl p-6 transition-all duration-200 flex flex-col h-full",
-                                        // 使用 shouldHighlight 来判断样式，而不是静态的 tier.popular
                                         shouldHighlight
                                             ? "border-2 border-blue-600 shadow-xl shadow-blue-100 z-10 scale-100 md:scale-105 bg-white ring-4 ring-blue-50/50"
                                             : "border border-slate-200 bg-white hover:border-blue-200 hover:shadow-lg hover:shadow-slate-100"
@@ -226,7 +235,6 @@ export function PricingModal({ open, onOpenChange }: PricingModalProps) {
                                     {tier.badge && (
                                         <div className={cn(
                                             "absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-xs font-bold text-white flex items-center gap-1 shadow-md whitespace-nowrap z-20",
-                                            // Badge 颜色也跟随高亮状态变得更醒目
                                             shouldHighlight ? "bg-gradient-to-r from-blue-600 to-indigo-600" : "bg-indigo-500"
                                         )}>
                                             <Sparkles size={12} fill="currentColor" />
