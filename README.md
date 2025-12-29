@@ -12,6 +12,21 @@
 
 # 🧠 AI Synap SaaS - Next-Gen Thinking Tool
 
+<div align="center">
+
+![Next.js](https://img.shields.io/badge/Next.js-15.0-black?style=for-the-badge&logo=next.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=for-the-badge&logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
+
+![DeepSeek](https://img.shields.io/badge/DeepSeek-API-blueviolet?style=for-the-badge&logo=openai&logoColor=white)
+![Stripe](https://img.shields.io/badge/Stripe-Payments-635BFF?style=for-the-badge&logo=stripe&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-Database-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
+
+![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)
+![Deploy](https://img.shields.io/badge/Deploy-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)
+
+</div>
+
 > **A production-ready, AI-powered mind mapping platform built with Next.js 15, DeepSeek, and ReactFlow.**
 >
 > *Benchmarking industry leaders like Mapify, featuring real-time streaming generation, infinite node expansion, and a complete commercialization loop.*
