@@ -104,7 +104,7 @@ The project uses a robust PostgreSQL schema handling users and subscriptions:
 
 1.  **Clone the repository**
     ```bash
-    git clone https://github.com/your-username/ai-mindmap-saas.git
+    git clone https://github.com/monsterxwx/synap.git
     ```
 
 2.  **Install dependencies**
@@ -132,13 +132,6 @@ The project uses a robust PostgreSQL schema handling users and subscriptions:
     npm run dev
     ```
 
-## 📸 ScreenShots (界面截图)
-
-|              Generating Flow              |            Pricing Model            |
-| :---------------------------------------: | :---------------------------------: |
-| ![Generating](public/demo-generating.png) | ![Pricing](public/demo-pricing.png) |
-
-*(请替换为你实际的截图)*
 
 ## 🤝 Contact & Hire Me
 
@@ -149,9 +142,8 @@ I am a Full-Stack Developer specializing in building complex, AI-driven web appl
 
 If you are looking for a developer to build your next MVP or scale your product, feel free to reach out.
 
-*   **Email:** [Your Email]
-*   **GitHub:** [Your GitHub Profile]
-*   **Portfolio:** [Your Portfolio Link]
+*   **Email:** [623989195@qq.com]
+*   **Portfolio:** [https://monsterxwx.github.io/blog/]
 
 
 ---

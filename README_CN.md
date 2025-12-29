@@ -92,7 +92,7 @@
 
 1.  **克隆项目**
     ```bash
-    git clone https://github.com/your-username/ai-mindmap-saas.git
+    git clone https://github.com/monsterxwx/synap.git
     ```
 
 2.  **安装依赖**
@@ -127,8 +127,7 @@
 
 如果您正在寻找开发者帮助您构建 MVP、SaaS 产品或进行技术升级，欢迎联系我：
 
-*   **邮箱:** [您的邮箱地址]
-*   **微信:** [您的微信号] (可选)
-*   **个人主页/作品集:** [您的链接]
+*   **邮箱:** [623989195@qq.com]
+*   **个人主页/作品集:** [https://monsterxwx.github.io/blog/]
 
 ---
