@@ -3,7 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2024-12-18.acacia', // 使用最新版本即可
+    apiVersion: '2024-12-18.acacia' as any, // 使用最新版本即可
 });
 
 export async function POST(req: Request) {
