@@ -26,6 +26,14 @@ This project is a full-stack **AI SaaS application** that transforms unstructure
 
 Unlike simple wrappers, this project implements a highly customized **streaming graph engine** that renders nodes in real-time as the AI "thinks", solving complex layout stability issues. It includes a robust **credit-based monetization system** integrated with Stripe and Supabase, supporting tiered subscriptions (Free/Pro/Unlimited).
 
+> **💳 Payment Testing Instructions:**
+>
+> *   This project is currently in **Stripe Test Mode** (Sandbox).
+> *   Please **DO NOT** use a real credit card.
+> *   **Test Card Number:** `4242 4242 4242 4242`
+> *   **Expiration Date:** Any future date (e.g., 12/30)
+> *   **CVC:** Any 3 digits (e.g., 123)
+
 ## 🚀 Key Features
 
 ### 🎨 Core Experience
