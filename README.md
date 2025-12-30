@@ -19,7 +19,8 @@
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
 
 ![DeepSeek](https://img.shields.io/badge/DeepSeek-API-blueviolet?style=for-the-badge&logo=openai&logoColor=white)
-![Stripe](https://img.shields.io/badge/Stripe-Payments-635BFF?style=for-the-badge&logo=stripe&logoColor=white)
+![Lemon Squeezy](https://img.shields.io/badge/Lemon%20Squeezy-Payments-7047EB?style=for-the-badge&logo=lemonsqueezy&logoColor=white)
+
 ![Supabase](https://img.shields.io/badge/Supabase-Database-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
 
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)
@@ -39,16 +40,16 @@
 
 This project is a full-stack **AI SaaS application** that transforms unstructured text, PDFs, and Word documents into structured, interactive mind maps instantly.
 
-Unlike simple wrappers, this project implements a highly customized **streaming graph engine** that renders nodes in real-time as the AI "thinks", solving complex layout stability issues. It includes a robust **credit-based monetization system** integrated with Stripe and Supabase, supporting tiered subscriptions (Free/Pro/Unlimited).
+Unlike simple wrappers, this project implements a highly customized **streaming graph engine** that renders nodes in real-time as the AI "thinks", solving complex layout stability issues. It includes a robust **credit-based monetization system** integrated with Lemon Squeezy and Supabase, supporting tiered subscriptions (Free/Pro/Unlimited).
 
 <details>
-<summary>💳 点击查看测试信用卡信息 (Test Cards for Stripe)</summary>
+<summary>💳 点击查看测试信用卡信息 (Test Cards for Lemon Squeezy)</summary>
 
 <br>
 
 > **💳 Payment Testing Instructions:**
 >
-> *   This project is currently in **Stripe Test Mode** (Sandbox).
+> *   This project is currently in **Lemon Squeezy Test Mode** (Sandbox).
 > *   Please **DO NOT** use a real credit card.
 > *   **Test Card Number:** `4242 4242 4242 4242`
 > *   **Expiration Date:** Any future date (e.g., 12/30)
@@ -70,7 +71,7 @@ Unlike simple wrappers, this project implements a highly customized **streaming 
     *   **Pro:** High limits, HD export, infinite expansion.
     *   **Unlimited:** Uncapped usage for power users.
 *   **Dynamic Credit System:** "Pay-as-you-go" logic based on input character count (fair usage policy), securing API costs.
-*   **Secure Payments:** Full Stripe integration (Checkout & Webhooks) with automated credit top-ups and monthly resets.
+*   **Secure Payments:** Full Lemon Squeezy integration (Checkout & Webhooks) with automated credit top-ups and monthly resets.
 *   **Real-time UI Sync:** UI updates instantly upon payment or usage via Supabase Realtime subscriptions and custom Event dispatchers.
 
 ### 🛠️ User Interface
@@ -87,7 +88,7 @@ Unlike simple wrappers, this project implements a highly customized **streaming 
 | **AI & LLM**        | DeepSeek V3 API, Vercel AI SDK (@ai-sdk/react)        |
 | **Visualization**   | ReactFlow v12, Dagre (Graph Layout), html-to-image    |
 | **Backend & Auth**  | Supabase (PostgreSQL, Auth, Realtime), Edge Functions |
-| **Payments**        | Stripe API, Stripe Webhooks                           |
+| **Payments**        | Lemon Squeezy API, Lemon Squeezy Webhooks             |
 | **File Processing** | pdf2json, mammoth.js                                  |
 
 ## 💡 Technical Highlights & Challenges Solved
@@ -126,7 +127,7 @@ const deepseek = createOpenAI({
 
 The project uses a robust PostgreSQL schema handling users and subscriptions:
 
-*   **`profiles`**: Stores credits, tier ('basic'/'pro'/'unlimited'), stripe IDs, billing cycles, and last reset dates.
+*   **`profiles`**: Stores credits, tier ('basic'/'pro'/'unlimited'), Lemon Squeezy IDs, billing cycles, and last reset dates.
 *   **`mind_maps`**: Stores the JSON structure of graphs, linked to users for history retrieval.
 *   **Auth Triggers**: Automatically initializes user profiles with default credits upon registration.
 
@@ -150,11 +151,15 @@ The project uses a robust PostgreSQL schema handling users and subscriptions:
     DEEPSEEK_API_KEY=
     NEXT_PUBLIC_SUPABASE_URL=
     NEXT_PUBLIC_SUPABASE_ANON_KEY=
-    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
-    STRIPE_SECRET_KEY=
     NEXT_PUBLIC_APP_URL=http://localhost:3000
-    STRIPE_WEBHOOK_SECRET=
     SUPABASE_SERVICE_ROLE_KEY=
+    LEMONSQUEEZY_API_KEY=
+    LEMONSQUEEZY_STORE_ID=263875
+    LEMONSQUEEZY_WEBHOOK_SECRET=secret-synap-888
+    NEXT_PUBLIC_VARIANT_PRO_MONTHLY=
+    NEXT_PUBLIC_VARIANT_UNLIMITED_MONTHLY=
+    NEXT_PUBLIC_VARIANT_PRO_YEARLY=
+    NEXT_PUBLIC_VARIANT_UNLIMITED_YEARLY=
     ```
 
 4.  **Run the development server**

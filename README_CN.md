@@ -21,7 +21,8 @@
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
 
 ![DeepSeek](https://img.shields.io/badge/DeepSeek-API-blueviolet?style=for-the-badge&logo=openai&logoColor=white)
-![Stripe](https://img.shields.io/badge/Stripe-Payments-635BFF?style=for-the-badge&logo=stripe&logoColor=white)
+![Lemon Squeezy](https://img.shields.io/badge/Lemon%20Squeezy-Payments-7047EB?style=for-the-badge&logo=lemonsqueezy&logoColor=white)
+
 ![Supabase](https://img.shields.io/badge/Supabase-Database-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
 
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)
@@ -38,13 +39,13 @@
 ![Project Banner](public/2.png)
 
 <details>
-<summary>💳 点击查看测试信用卡信息 (Test Cards for Stripe)</summary>
+<summary>💳 点击查看测试信用卡信息 (Test Cards for Lemon Squeezy)</summary>
 
 <br>
 
 > **💳 测试说明:**
 >
-> *   本项目处于 Stripe Test Mode (沙盒模式)。
+> *   本项目处于 Lemon Squeezy Test Mode (沙盒模式)。
 > *   请勿使用真实信用卡支付。
 > *   **测试卡号:** `4242 4242 4242 4242`
 > *   **日期:** 任意未来日期 (如 12/30)
@@ -56,7 +57,7 @@
 
 这是一个全栈 **AI SaaS 应用**，旨在利用大语言模型（DeepSeek）将非结构化的文本、PDF、Word 文档瞬间转化为结构清晰、可交互的思维导图。
 
-不同于简单的 API 套壳，本项目自主研发了 **流式图引擎（Streaming Graph Engine）**，能够在 AI 思考的同时逐个渲染节点，解决了流式传输中常见的 JSON 解析错误和画布闪烁问题。此外，项目内置了基于 Stripe 和 Supabase 的**商业化积分系统**，支持分层订阅（免费/Pro/无限版），开箱即用。
+不同于简单的 API 套壳，本项目自主研发了 **流式图引擎（Streaming Graph Engine）**，能够在 AI 思考的同时逐个渲染节点，解决了流式传输中常见的 JSON 解析错误和画布闪烁问题。此外，项目内置了基于 Lemon Squeezy 和 Supabase 的**商业化积分系统**，支持分层订阅（免费/Pro/无限版），开箱即用。
 
 ## 🚀 核心功能亮点
 
@@ -72,7 +73,7 @@
     *   **Pro (会员版):** 大额积分，支持 10MB 文件，高清无水印导出，解锁无限扩写。
     *   **Unlimited (无限版):** 无限积分与无限制使用。
 *   **动态计费策略:** 摒弃“按次扣费”的不公，采用 **“基础费 + 字符流量费”** 的算法，精准计算 Token 成本，保障利润空间。
-*   **Stripe 深度集成:** 支持完整的 Checkout 流程与 Webhook 处理，实现自动充值、会员自动续费、每月积分重置。
+*   **Lemon Squeezy 深度集成:** 支持完整的 Checkout 流程与 Webhook 处理，实现自动充值、会员自动续费、每月积分重置。
 *   **实时权益同步:** 支付成功后，利用 Supabase Realtime 和自定义事件总线，前端无需刷新即可秒级更新用户权益（VIP 标、积分余额）。
 
 ### 🛠️ 现代化 UI/UX
@@ -89,7 +90,7 @@
 | **AI 模型**    | DeepSeek V3 API, Vercel AI SDK (@ai-sdk/react)        |
 | **图形可视化** | ReactFlow v12, Dagre (自动布局算法), html-to-image    |
 | **后端与数据** | Supabase (PostgreSQL, Auth, Realtime), Edge Functions |
-| **支付系统**   | Stripe API, Stripe Webhooks                           |
+| **支付系统**   | Lemon Squeezy API, Lemon Squeezy Webhooks             |
 | **文件处理**   | pdf2json, mammoth.js                                  |
 
 ## 💡 技术难点与解决方案
@@ -114,7 +115,7 @@
 
 项目使用 PostgreSQL 构建了严谨的用户数据模型：
 
-*   **`profiles`**: 存储用户核心权益（积分 `credits`、等级 `tier`、Stripe ID、账单周期、上次重置时间）。
+*   **`profiles`**: 存储用户核心权益（积分 `credits`、等级 `tier`、Lemon Squeezy ID、账单周期、上次重置时间）。
 *   **`mind_maps`**: 存储思维导图的 JSON 数据结构，支持历史记录回溯。
 *   **Auth Triggers**: 数据库触发器，确保新用户注册时自动初始化积分和权限，无需后端额外代码介入。
 
@@ -138,11 +139,15 @@
     DEEPSEEK_API_KEY=
     NEXT_PUBLIC_SUPABASE_URL=
     NEXT_PUBLIC_SUPABASE_ANON_KEY=
-    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
-    STRIPE_SECRET_KEY=
     NEXT_PUBLIC_APP_URL=http://localhost:3000
-    STRIPE_WEBHOOK_SECRET=
     SUPABASE_SERVICE_ROLE_KEY=
+    LEMONSQUEEZY_API_KEY=
+    LEMONSQUEEZY_STORE_ID=263875
+    LEMONSQUEEZY_WEBHOOK_SECRET=secret-synap-888
+    NEXT_PUBLIC_VARIANT_PRO_MONTHLY=
+    NEXT_PUBLIC_VARIANT_UNLIMITED_MONTHLY=
+    NEXT_PUBLIC_VARIANT_PRO_YEARLY=
+    NEXT_PUBLIC_VARIANT_UNLIMITED_YEARLY=
     ```
 
 4.  **启动开发服务器**
